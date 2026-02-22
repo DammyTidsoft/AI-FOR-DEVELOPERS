@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KINESIQ — AI Body Language Reader</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080b10;
+    --surface: #0e1318;
+    --border: #1a2530;
+    --accent: #00e5ff;
+    --accent2: #ff3d6b;
+    --accent3: #b8ff57;
+    --text: #e8edf2;
+    --muted: #4a6070;
+    --card: #0d1720;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Syne', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  header {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 40px;
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+  }
+
+  .logo {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 4px;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+
+  .logo span { color: var(--accent2); }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0,229,255,0.06);
+    border: 1px solid rgba(0,229,255,0.2);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+  }
+
+  .pulse {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent3);
+    animation: pulse 1.5s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  .main {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 0;
+    height: calc(100vh - 65px);
+  }
+
+  /* Left panel - camera/upload */
+  .camera-panel {
+    position: relative;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 30px;
+    gap: 20px;
+  }
+
+  .camera-frame {
+    position: relative;
+    width: 100%;
+    max-width: 640px;
+    aspect-ratio: 16/9;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+
+  .camera-frame video,
+  .camera-frame img,
+  .camera-frame canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .camera-frame canvas {
+    position: absolute;
+    top: 0; left: 0;
+    pointer-events: none;
+  }
+
+  .camera-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: var(--muted);
+  }
+
+  .camera-placeholder svg {
+    opacity: 0.3;
+  }
+
+  .camera-placeholder p {
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  /* Corner scan brackets */
+  .scan-corner {
+    position: absolute;
+    width: 24px; height: 24px;
+    border-color: var(--accent);
+    border-style: solid;
+    border-width: 0;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .camera-frame.active .scan-corner { opacity: 1; }
+  .scan-corner.tl { top: 12px; left: 12px; border-top-width: 2px; border-left-width: 2px; }
+  .scan-corner.tr { top: 12px; right: 12px; border-top-width: 2px; border-right-width: 2px; }
+  .scan-corner.bl { bottom: 12px; left: 12px; border-bottom-width: 2px; border-left-width: 2px; }
+  .scan-corner.br { bottom: 12px; right: 12px; border-bottom-width: 2px; border-right-width: 2px; }
+
+  /* Scan line */
+  .scan-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    top: 0;
+    opacity: 0;
+    animation: scanLine 2s linear infinite;
+  }
+  .camera-frame.scanning .scan-line { opacity: 0.7; }
+
+  @keyframes scanLine {
+    0% { top: 0%; }
+    100% { top: 100%; }
+  }
+
+  .controls {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .btn {
+    padding: 10px 24px;
+    border: 1px solid;
+    border-radius: 2px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: transparent;
+  }
+
+  .btn-primary {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .btn-primary:hover {
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  .btn-secondary {
+    border-color: var(--border);
+    color: var(--muted);
+  }
+  .btn-secondary:hover {
+    border-color: var(--text);
+    color: var(--text);
+  }
+
+  .btn-danger {
+    border-color: var(--accent2);
+    color: var(--accent2);
+  }
+  .btn-danger:hover {
+    background: var(--accent2);
+    color: white;
+  }
+
+  .btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  input[type="file"] { display: none; }
+
+  /* Right panel - results */
+  .results-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--card);
+  }
+
+  .results-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .results-header h2 {
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .analysis-id {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  .results-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .results-body::-webkit-scrollbar { width: 3px; }
+  .results-body::-webkit-scrollbar-track { background: transparent; }
+  .results-body::-webkit-scrollbar-thumb { background: var(--border); }
+
+  /* Empty state */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--muted);
+    text-align: center;
+    padding: 40px;
+  }
+
+  .empty-state .icon {
+    font-size: 48px;
+    opacity: 0.2;
+  }
+
+  .empty-state p {
+    font-size: 12px;
+    letter-spacing: 1px;
+    line-height: 1.8;
+  }
+
+  /* Confidence score */
+  .confidence-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px;
+    animation: fadeIn 0.4s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .confidence-card h3 {
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  .overall-score {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .score-num {
+    font-size: 52px;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--accent3);
+  }
+
+  .score-label {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    font-family: 'Space Mono', monospace;
+  }
+
+  /* Emotion bars */
+  .emotion-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .emotion-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    width: 80px;
+    flex-shrink: 0;
+  }
+
+  .emotion-bar-bg {
+    flex: 1;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .emotion-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    width: 0%;
+  }
+
+  .emotion-pct {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--text);
+    width: 30px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  /* Signal cards */
+  .signal-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px 16px;
+    animation: fadeIn 0.4s ease;
+    border-left: 3px solid transparent;
+  }
+
+  .signal-card.positive { border-left-color: var(--accent3); }
+  .signal-card.negative { border-left-color: var(--accent2); }
+  .signal-card.neutral { border-left-color: var(--accent); }
+
+  .signal-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+
+  .signal-type {
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+  }
+
+  .signal-badge {
+    font-size: 9px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-family: 'Space Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .badge-positive { background: rgba(184,255,87,0.1); color: var(--accent3); }
+  .badge-negative { background: rgba(255,61,107,0.1); color: var(--accent2); }
+  .badge-neutral { background: rgba(0,229,255,0.1); color: var(--accent); }
+
+  .signal-desc {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+
+  /* Summary card */
+  .summary-card {
+    background: linear-gradient(135deg, rgba(0,229,255,0.05), rgba(255,61,107,0.05));
+    border: 1px solid rgba(0,229,255,0.15);
+    border-radius: 4px;
+    padding: 16px;
+    animation: fadeIn 0.6s ease;
+  }
+
+  .summary-card h3 {
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .summary-card p {
+    font-size: 13px;
+    line-height: 1.8;
+    color: var(--text);
+  }
+
+  /* Loading state */
+  .loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(8,11,16,0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    z-index: 5;
+    display: none;
+  }
+
+  .loading-overlay.active { display: flex; }
+
+  .loading-ring {
+    width: 48px; height: 48px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-text {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--accent);
+    text-transform: uppercase;
+    animation: blink 1s infinite;
+  }
+
+  @keyframes blink { 50% { opacity: 0.4; } }
+
+  /* Pose overlay points */
+  .pose-dot {
+    position: absolute;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 6px var(--accent);
+    animation: fadeIn 0.3s ease;
+  }
+
+  /* Bottom bar */
+  .bottom-bar {
+    padding: 12px 24px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg);
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  /* Mode tabs */
+  .mode-tabs {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .mode-tab {
+    padding: 6px 14px;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    transition: all 0.2s;
+  }
+
+  .mode-tab.active {
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  /* Disclaimer */
+  .disclaimer {
+    font-size: 10px;
+    color: var(--muted);
+    text-align: center;
+    padding: 8px 20px;
+    border-top: 1px solid var(--border);
+    font-family: 'Space Mono', monospace;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">KINESIQ<span>.</span></div>
+  <div class="status-pill">
+    <div class="pulse"></div>
+    AI ENGINE READY
+  </div>
+  <div style="display:flex;gap:8px;">
+    <div class="mode-tabs">
+      <button class="mode-tab active" onclick="setMode('image')">Image</button>
+      <button class="mode-tab" onclick="setMode('webcam')">Webcam</button>
+    </div>
+  </div>
+</header>
+
+<div class="main">
+  <!-- Left: Camera/Upload -->
+  <div class="camera-panel">
+    <div class="camera-frame" id="cameraFrame" onclick="handleFrameClick()">
+      <div class="scan-corner tl"></div>
+      <div class="scan-corner tr"></div>
+      <div class="scan-corner bl"></div>
+      <div class="scan-corner br"></div>
+      <div class="scan-line"></div>
+
+      <video id="videoEl" autoplay muted playsinline style="display:none;"></video>
+      <canvas id="overlayCanvas" style="display:none;"></canvas>
+
+      <div class="camera-placeholder" id="placeholder">
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="8" y="16" width="48" height="36" rx="2" stroke="currentColor" stroke-width="2"/>
+          <circle cx="32" cy="34" r="10" stroke="currentColor" stroke-width="2"/>
+          <circle cx="32" cy="34" r="4" fill="currentColor" opacity="0.3"/>
+          <rect x="22" y="12" width="20" height="6" rx="2" stroke="currentColor" stroke-width="2"/>
+        </svg>
+        <p>Drop an image or click to upload</p>
+        <p style="font-size:11px;opacity:0.5;">or switch to Webcam mode above</p>
+      </div>
+
+      <img id="previewImg" style="display:none;" alt="Preview"/>
+
+      <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-ring"></div>
+        <div class="loading-text">Analyzing posture...</div>
+      </div>
+    </div>
+
+    <input type="file" id="fileInput" accept="image/*" onchange="handleFileUpload(event)"/>
+
+    <div class="controls" id="imageControls">
+      <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Upload Image</button>
+      <button class="btn btn-secondary" id="analyzeBtn" onclick="runAnalysis()" disabled>Analyze</button>
+      <button class="btn btn-secondary" onclick="loadDemo()">Load Demo</button>
+    </div>
+
+    <div class="controls" id="webcamControls" style="display:none;">
+      <button class="btn btn-primary" id="startCamBtn" onclick="startWebcam()">Start Camera</button>
+      <button class="btn btn-danger" id="stopCamBtn" onclick="stopWebcam()" style="display:none;">Stop</button>
+      <button class="btn btn-secondary" id="captureBtn" onclick="captureFrame()" style="display:none;">Capture & Analyze</button>
+    </div>
+  </div>
+
+  <!-- Right: Results -->
+  <div class="results-panel">
+    <div class="results-header">
+      <h2>Analysis Results</h2>
+      <div class="analysis-id" id="analysisId">—</div>
+    </div>
+
+    <div class="results-body" id="resultsBody">
+      <div class="empty-state" id="emptyState">
+        <div class="icon">◎</div>
+        <p>Upload an image or start the<br>webcam to begin body language<br>analysis</p>
+      </div>
+    </div>
+
+    <div class="disclaimer">
+      ⚠ Prototype — AI analysis is simulated. For demonstration purposes only.
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentMode = 'image';
+  let hasImage = false;
+  let stream = null;
+  let analysisCount = 0;
+
+  // Demo image (stick figure SVG converted to data URL for demo)
+  const DEMO_POSES = [
+    {
+      label: 'Business professional in meeting',
+      imageColor: '#1a2a1a',
+      accent: '#b8ff57'
+    },
+    {
+      label: 'Standing presentation pose',
+      imageColor: '#1a1a2a',
+      accent: '#00e5ff'
+    }
+  ];
+
+  function setMode(mode) {
+    currentMode = mode;
+    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+    event.target.classList.add('active');
+
+    if (mode === 'image') {
+      document.getElementById('imageControls').style.display = 'flex';
+      document.getElementById('webcamControls').style.display = 'none';
+      stopWebcam();
+    } else {
+      document.getElementById('imageControls').style.display = 'none';
+      document.getElementById('webcamControls').style.display = 'flex';
+      document.getElementById('previewImg').style.display = 'none';
+      document.getElementById('placeholder').style.display = 'flex';
+    }
+  }
+
+  function handleFrameClick() {
+    if (currentMode === 'image') {
+      document.getElementById('fileInput').click();
+    }
+  }
+
+  function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = document.getElementById('previewImg');
+      img.src = e.target.result;
+      img.style.display = 'block';
+      document.getElementById('placeholder').style.display = 'none';
+
+      const frame = document.getElementById('cameraFrame');
+      frame.classList.add('active');
+
+      document.getElementById('analyzeBtn').disabled = false;
+      hasImage = true;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function loadDemo() {
+    // Create a canvas-based demo image
+    const canvas = document.createElement('canvas');
+    canvas.width = 640; canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+
+    // Background
+    ctx.fillStyle = '#0a1520';
+    ctx.fillRect(0, 0, 640, 360);
+
+    // Draw a simple stick figure
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+
+    const cx = 320, cy = 180;
+
+    // Head
+    ctx.beginPath();
+    ctx.arc(cx, cy - 80, 30, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Body
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 50);
+    ctx.lineTo(cx, cy + 40);
+    ctx.stroke();
+
+    // Left arm (open, confident)
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 20);
+    ctx.lineTo(cx - 70, cy + 10);
+    ctx.stroke();
+
+    // Right arm
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 20);
+    ctx.lineTo(cx + 70, cy + 10);
+    ctx.stroke();
+
+    // Left leg
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + 40);
+    ctx.lineTo(cx - 40, cy + 110);
+    ctx.stroke();
+
+    // Right leg
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + 40);
+    ctx.lineTo(cx + 40, cy + 110);
+    ctx.stroke();
+
+    // Glow dots at joints
+    const joints = [
+      [cx, cy-50], [cx, cy-20], [cx-70, cy+10], [cx+70, cy+10],
+      [cx, cy+40], [cx-40, cy+110], [cx+40, cy+110]
+    ];
+    joints.forEach(([x, y]) => {
+      ctx.beginPath();
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,229,255,0.8)';
+      ctx.fill();
+    });
+
+    // Add subtle grid
+    ctx.strokeStyle = 'rgba(0,229,255,0.05)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 640; i += 30) {
+      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 360); ctx.stroke();
+    }
+    for (let j = 0; j < 360; j += 30) {
+      ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(640, j); ctx.stroke();
+    }
+
+    const img = document.getElementById('previewImg');
+    img.src = canvas.toDataURL();
+    img.style.display = 'block';
+    document.getElementById('placeholder').style.display = 'none';
+    document.getElementById('cameraFrame').classList.add('active');
+    document.getElementById('analyzeBtn').disabled = false;
+    hasImage = true;
+  }
+
+  async function startWebcam() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const video = document.getElementById('videoEl');
+      video.srcObject = stream;
+      video.style.display = 'block';
+      document.getElementById('placeholder').style.display = 'none';
+      document.getElementById('cameraFrame').classList.add('active', 'scanning');
+      document.getElementById('startCamBtn').style.display = 'none';
+      document.getElementById('stopCamBtn').style.display = 'block';
+      document.getElementById('captureBtn').style.display = 'block';
+    } catch (err) {
+      alert('Camera access denied or not available. Try uploading an image instead.');
+    }
+  }
+
+  function stopWebcam() {
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+    const video = document.getElementById('videoEl');
+    video.style.display = 'none';
+    document.getElementById('cameraFrame').classList.remove('active', 'scanning');
+    document.getElementById('placeholder').style.display = 'flex';
+    document.getElementById('startCamBtn').style.display = 'block';
+    document.getElementById('stopCamBtn').style.display = 'none';
+    document.getElementById('captureBtn').style.display = 'none';
+  }
+
+  function captureFrame() {
+    const video = document.getElementById('videoEl');
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+
+    const img = document.getElementById('previewImg');
+    img.src = canvas.toDataURL();
+    img.style.display = 'block';
+    video.style.display = 'none';
+    hasImage = true;
+    stopWebcam();
+    runAnalysis();
+  }
+
+  async function runAnalysis() {
+    if (!hasImage && currentMode !== 'webcam') return;
+
+    // Show loading
+    document.getElementById('loadingOverlay').classList.add('active');
+    document.getElementById('cameraFrame').classList.add('scanning');
+    document.getElementById('analyzeBtn').disabled = true;
+
+    // Simulate API call delay
+    await sleep(2000 + Math.random() * 1000);
+
+    document.getElementById('loadingOverlay').classList.remove('active');
+    document.getElementById('cameraFrame').classList.remove('scanning');
+
+    analysisCount++;
+    document.getElementById('analysisId').textContent = `ID: ${generateId()}`;
+
+    // Generate mock analysis
+    displayResults(generateAnalysis());
+
+    document.getElementById('analyzeBtn').disabled = false;
+  }
+
+  function generateAnalysis() {
+    const scenarios = [
+      {
+        overallScore: 72,
+        dominantEmotion: 'CONFIDENT',
+        emotions: { Confident: 72, Engaged: 58, Open: 65, Nervous: 18, Defensive: 12 },
+        signals: [
+          { type: 'Posture', polarity: 'positive', badge: 'Open', desc: 'Upright spine with shoulders back suggests confidence and openness to communication.' },
+          { type: 'Arms', polarity: 'positive', badge: 'Open', desc: 'Arms uncrossed and visible — a strong indicator of openness and non-defensive stance.' },
+          { type: 'Head Position', polarity: 'neutral', badge: 'Neutral', desc: 'Head held level with slight forward tilt, indicating active listening and engagement.' },
+          { type: 'Micro-tension', polarity: 'negative', badge: 'Detected', desc: 'Subtle jaw tension detected, possibly indicating suppressed stress or concentration.' },
+        ],
+        summary: 'This individual projects confidence and approachability. The open arm position and upright posture signal readiness for interaction. Minor micro-tensions suggest focused effort or mild stress, but overall body language reads as engaged and trustworthy.'
+      },
+      {
+        overallScore: 44,
+        dominantEmotion: 'GUARDED',
+        emotions: { Defensive: 61, Anxious: 49, Closed: 55, Confident: 22, Engaged: 30 },
+        signals: [
+          { type: 'Arms', polarity: 'negative', badge: 'Crossed', desc: 'Arms crossed over chest is a classic self-protection gesture, often indicating defensiveness or discomfort.' },
+          { type: 'Posture', polarity: 'negative', badge: 'Contracted', desc: 'Slight inward lean and contracted torso suggest the person is trying to take up less space.' },
+          { type: 'Eye Contact', polarity: 'neutral', badge: 'Avoidant', desc: 'Gaze direction suggests reduced direct eye contact, which may indicate discomfort or deception.' },
+          { type: 'Feet/Legs', polarity: 'positive', badge: 'Stable', desc: 'Feet planted shoulder-width apart showing groundedness despite upper-body tension.' },
+        ],
+        summary: 'Body language signals indicate a guarded or uncomfortable emotional state. The combination of crossed arms and contracted posture suggests a desire to self-protect. This could reflect introversion, discomfort with the social setting, or active disagreement with the subject at hand.'
+      },
+      {
+        overallScore: 89,
+        dominantEmotion: 'ENGAGED',
+        emotions: { Engaged: 89, Enthusiastic: 75, Open: 82, Confident: 70, Relaxed: 63 },
+        signals: [
+          { type: 'Lean', polarity: 'positive', badge: 'Forward', desc: 'Leaning forward indicates genuine interest and engagement with the conversation or subject.' },
+          { type: 'Gestures', polarity: 'positive', badge: 'Expressive', desc: 'Active hand gestures accompanying speech signals high enthusiasm and authenticity.' },
+          { type: 'Facial Tone', polarity: 'positive', badge: 'Animated', desc: 'Elevated eyebrow position and relaxed jaw muscles suggest openness and positive affect.' },
+          { type: 'Mirror', polarity: 'positive', badge: 'Detected', desc: 'Postural mirroring detected — a subconscious sign of rapport and connection with others present.' },
+        ],
+        summary: 'Exceptionally engaged body language. Forward lean, expressive gestures, and postural mirroring all combine to paint a picture of someone fully invested in the interaction. This is the kind of body language associated with leaders, enthusiastic collaborators, and charismatic communicators.'
+      }
+    ];
+
+    return scenarios[Math.floor(Math.random() * scenarios.length)];
+  }
+
+  function displayResults(data) {
+    const body = document.getElementById('resultsBody');
+    body.innerHTML = '';
+
+    const emotionColors = {
+      Confident: '#b8ff57', Engaged: '#00e5ff', Open: '#00e5ff',
+      Relaxed: '#b8ff57', Enthusiastic: '#b8ff57',
+      Nervous: '#ff9f57', Anxious: '#ff9f57', Defensive: '#ff3d6b',
+      Closed: '#ff3d6b', Guarded: '#ff9f57'
+    };
+
+    // Score card
+    const scoreCard = document.createElement('div');
+    scoreCard.className = 'confidence-card';
+    scoreCard.innerHTML = `
+      <h3>Overall Signal Strength</h3>
+      <div class="overall-score">
+        <div class="score-num" style="color: ${data.overallScore >= 70 ? 'var(--accent3)' : data.overallScore >= 45 ? '#ff9f57' : 'var(--accent2)'}">
+          ${data.overallScore}
+        </div>
+        <div class="score-label">/ 100<br>${data.dominantEmotion}</div>
+      </div>
+      ${Object.entries(data.emotions).map(([label, val]) => `
+        <div class="emotion-row">
+          <div class="emotion-label">${label}</div>
+          <div class="emotion-bar-bg">
+            <div class="emotion-bar-fill" style="width:0%; background:${emotionColors[label] || '#00e5ff'};" data-val="${val}"></div>
+          </div>
+          <div class="emotion-pct">${val}%</div>
+        </div>
+      `).join('')}
+    `;
+    body.appendChild(scoreCard);
+
+    // Animate bars
+    setTimeout(() => {
+      body.querySelectorAll('.emotion-bar-fill').forEach(bar => {
+        bar.style.width = bar.dataset.val + '%';
+      });
+    }, 100);
+
+    // Signal cards
+    const sigHeader = document.createElement('div');
+    sigHeader.innerHTML = `<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);font-family:'Space Mono',monospace;padding:4px 0;">Detected Signals</div>`;
+    body.appendChild(sigHeader);
+
+    data.signals.forEach((sig, i) => {
+      const card = document.createElement('div');
+      card.className = `signal-card ${sig.polarity}`;
+      card.style.animationDelay = `${i * 0.1}s`;
+      card.innerHTML = `
+        <div class="signal-top">
+          <div class="signal-type">${sig.type}</div>
+          <div class="signal-badge badge-${sig.polarity}">${sig.badge}</div>
+        </div>
+        <div class="signal-desc">${sig.desc}</div>
+      `;
+      body.appendChild(card);
+    });
+
+    // Summary
+    const sumCard = document.createElement('div');
+    sumCard.className = 'summary-card';
+    sumCard.innerHTML = `
+      <h3>AI Interpretation</h3>
+      <p>${data.summary}</p>
+    `;
+    body.appendChild(sumCard);
+
+    // Scroll to top
+    body.scrollTop = 0;
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function generateId() {
+    return 'KQ-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+  }
+</script>
+</body>
+</html>
